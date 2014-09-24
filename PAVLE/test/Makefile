@@ -10,9 +10,10 @@ GCC_OPTS=-O3 -Wall -Wextra -m64
 OBJ = main_test_cu.o #vlc_kernel_sm32.o scan.o pack_kernels.o stats_logger.cpp 
 #HDRS = cuda_helpers.h load_data.h print_helpers.h stats_logger.h stdafx.h 
 SRC = main_test_cu.cpp #stats_logger.cpp 
+EXC = main
 
 main: $(SRC)
-	$(CC) $(SRC) -o main
+	$(CC) $(SRC) -o $(EXC)
 	
 #-o VLEtest main.o student_func.o compare.o reference_calc.o -L $(OPENCV_LIBPATH) $(OPENCV_LIBS) $(NVCC_OPTS)
 
@@ -29,4 +30,4 @@ main: $(SRC)
 #	g++ -c reference_calc.cpp -I  $(GCC_OPTS) -I $(CUDA_INCLUDEPATH)
 #
 clean:
-	rm -f *.o *.png main 
+	rm -f *.o *.png $(EXC) 
