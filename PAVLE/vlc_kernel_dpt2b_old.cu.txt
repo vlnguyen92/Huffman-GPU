@@ -1,0 +1,164 @@
+#ifndef _VLC_DPT2B_H_
+#define _VLC_DPT2B_H_
+
+#include "parameters.h"
+#include "pabio_kernels_v2.cu"
+
+
+// shared memory requirements: (DATA_BLOCK_SIZE + 2*NUM_SYMBOLS + ENCODE_THREADS + BUFF_SIZE)*sizeof(unsigned int) 
+// = (2*NUM_SYMBOLS + ENCODE_THREADS + 2*ENCODE_THREADS*DPT)*sizeof(unsigned int) 
+// this version buffers the aligned output data into cwbuff, and then stores them to GM
+// (+) this version makes a minimal number of atomic operations per thread; atomics are on the shared memory. (required CUDA 1.3)
+// (-) shared memory requirements are much larger, more complex code (branches), and there are 2 loads from GM for input data words 
+// TODO: reduce number of copies from sm to gm 9copy only coded data in coalesced memory accesses) (Done! check if it works correctly and optimize it!)
+
+__global__ static void vlc_encode_kernel_dpt2b(unsigned int *data, unsigned int *gm_codewords, unsigned int *gm_codewordlens,
+									#ifdef TESTING
+										unsigned int *data32, unsigned int *cw32len, unsigned int *cw32idx,
+									#endif
+										unsigned int *out, unsigned int *outidx){
+
+	unsigned int kn = (blockIdx.x*blockDim.x + threadIdx.x) * DPT;
+	unsigned int k = threadIdx.x;
+	unsigned int kc, startbit;
+
+	unsigned int cwlen = 0;
+	unsigned int val32, tmpcw;
+	unsigned char byte;
+
+	extern __shared__ unsigned int as[];
+	/* Load the static codewords and codeword lengths into cw, cwlens arrays*/
+	unsigned int *adata = as; 
+	unsigned int *cwbuff = as + DPT*blockDim.x; 
+	unsigned int *cw = as + 2*DPT*blockDim.x;
+	unsigned int *cwlens = as + 2*DPT*blockDim.x + NUM_SYMBOLS;
+	/* Store the bit positions for threads into cw_lens array*/
+	unsigned int *cw_lens = as + 2*DPT*blockDim.x + 2*NUM_SYMBOLS;
+
+	//CWBUFF WILL STORE THE SHIFTED CODEWORDS... EACH THREAD GETS dpt ELEMENTS in the buffer or dpt*2 to gurantee no overflow
+	//we allocate ENCODE_THREADS*DPT size for cwbuff; 
+	//a safety trick to if there might be a chance of expension, weould be to allocate 2*cwbuff
+
+	// Handle different numbers of threads (256 threads per block is ideal)
+	if (k < NUM_SYMBOLS) {
+		cw[k] =gm_codewords[k];
+		cwlens[k] = gm_codewordlens[k];
+		for (unsigned int i=1; i<NUM_SYMBOLS/blockDim.x; i++) {
+			cw[k+i*blockDim.x] = gm_codewords[k+i*blockDim.x];
+			cwlens[k+i*blockDim.x] = gm_codewordlens[k+i*blockDim.x];
+		}
+	}
+	__syncthreads();
+
+	/* Just load the original data into SM, set the buffer contents to all 0s, and extract the codeword lengths for calculation of the offsets! */
+	for(unsigned int i=0; i<DPT; i++) {
+		val32 = data[kn+i];
+		adata[k*DPT+i] = val32;
+		cwbuff[k*DPT+i] = 0;
+		for(unsigned int b=0; b<4; b++) {
+			byte = (unsigned char)(val32>>(3-b)*8);
+			cwlen += cwlens[byte];
+		}
+	}
+	cw_lens[k] = cwlen;
+	__syncthreads();
+
+	// Prefix sum of codeword lengths (denoted in bits) [inplace implementation]
+	unsigned int offset = 1;
+
+    // Build the sum in place up the tree
+	for (unsigned int d=blockDim.x>>1; d>0; d>>=1) {
+		if (k < d) {
+			unsigned int ai = offset*(2*k+1)-1;
+			unsigned int bi = offset*(2*k+2)-1;
+			cw_lens[bi] += cw_lens[ai];
+		}
+		offset *= 2;
+		__syncthreads();
+	}
+
+	// scan back down the tree
+	// clear the last element
+	if (k == 0) cw_lens[blockDim.x-1] = 0;
+	__syncthreads();
+
+	// traverse down the tree building the scan in place
+	for (unsigned int d=1; d<blockDim.x; d*=2) {
+		offset >>= 1;
+		if (k < d) {
+			unsigned char ai = offset*(2*k+1)-1;
+			unsigned char bi = offset*(2*k+2)-1;
+			unsigned int t  = cw_lens[ai];
+			cw_lens[ai]  = cw_lens[bi];
+			cw_lens[bi] += t;
+		}
+		__syncthreads();
+	}
+	// TODO: store this into SM for faster access!
+	if (k == blockDim.x-1)
+		outidx[blockIdx.x] = cw_lens[k] + cwlen;
+
+	#ifdef TESTING
+	data32[kn] = val32;
+	cw32len[kn] = cwlen;
+	cw32idx[kn] = cw_lens[k];
+	#endif
+
+	/* Compute output index kc and startbit position */
+	startbit = cw_lens[k] % 32;
+	kc = cw_lens[k]/32;
+	unsigned int n=0, nmax = cw_lens[k+1]/32 - cw_lens[k]/32;
+	unsigned int tmpstartbit = startbit, numbits; // the numbering for the starbit goes from MSB[0...31]LSb
+
+	for(unsigned int i=0; i<DPT; i++) {
+		// now get the data cached into sm, and assign the codewords
+		val32 = adata[k*DPT+i];	
+		for(unsigned int b=0; b<4; b++) {
+			byte =(unsigned char) (val32>>(3-b)*8);
+			tmpcw = cw[byte];
+			numbits = cwlens[byte];					// code-word length for current byte
+			if (tmpstartbit + numbits > 32) {
+				numbits =  tmpstartbit + numbits - 32;
+				//store to kc+n, if (n==0) must atomicOr
+				if (n==0 || n==nmax) atomicOr(&cwbuff[kc+n], (tmpcw >> numbits));
+					else cwbuff[kc+n] |= (tmpcw >> numbits); //store the codeword starting from startbit without the overflow bits...
+				n++; tmpstartbit = 0;
+			}
+
+			if (n==0 || n==nmax) atomicOr(&cwbuff[kc+n], (tmpcw << 32-tmpstartbit-numbits));
+				else cwbuff[kc+n] |= tmpcw << 32-tmpstartbit-numbits; //case1: push the codeword at the startbit position, 
+																					//case2: extract the overflow bits and push tehm to the start of the word
+			tmpstartbit += numbits; 
+		}
+	}
+
+	__syncthreads();
+
+	//for (unsigned int i=0; i<DPT; i++)
+	//	out[kn+i] = cwbuff[k*DPT+i];
+
+	//Copy only the encoded data from cwbuff to the global memory!
+	unsigned int lastidx = outidx[blockIdx.x]/32;
+
+	for (unsigned int r=0; r<DPT; r++) 
+		if ((blockDim.x*r+k)<= lastidx) out[blockIdx.x*blockDim.x*DPT+blockDim.x*r+k] = cwbuff[blockDim.x*r+k]; 
+
+
+}
+#endif
+
+
+
+	//for(unsigned int i=0; i<DPT; i++) {
+	//	val32 = data[kn+i];								// load original data
+	//	adata[k*DPT+i] = val32;
+	//	for(unsigned int b=0; b<4; b++) {
+	//		byte =(unsigned char) (val32>>(3-b)*8);
+	//		tmpcw = cw[byte[b]];
+	//		tmpcwlen = cwlens[byte[b]];
+	//		codeword = (codeword<<tmpcwlen) | tmpcw;
+	//		cwlen  += tmpcwlen;							// overall code-word length so far
+
+	//	}
+	//}
+	
