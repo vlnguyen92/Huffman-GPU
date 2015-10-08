@@ -16,7 +16,6 @@
 #define _PACK_KERNELS_H_
 #include "parameters.h"
 
-
 __global__ static void pack2(unsigned int *srcData, unsigned int *cindex, unsigned int *cindex2, unsigned int *dstData, unsigned int original_num_block_elements) {
 	unsigned int tid = blockDim.x*blockIdx.x + threadIdx.x;
 

@@ -52,21 +52,13 @@ __global__ void histo_kernel( unsigned char *buffer,
     atomicAdd( &(histo[threadIdx.x]), temp[threadIdx.x] );
 }
 
-int run(char* file, unsigned int* freq, unsigned int memSize, unsigned int *source) {
-
-//    FILE *f = fopen(file,"rb");
-//    if (!f) {perror(file); exit(1);}
-//    fseek(f,0,SEEK_END);
-//    unsigned int memSize = ftell(f);
-//    fclose(f);
-
-//    unsigned int* source;// = (unsigned int*) malloc (memSize);
-//    cudaHostAlloc((void**)&source,memSize,cudaHostAllocDefault);
+int runHisto(char* file, unsigned int* freq, unsigned int memSize, unsigned int *source) {
 
     FILE *f = fopen(file,"rb");
     if (!f) {perror(file); exit(1);}
     fseek(f,0,SEEK_SET);
-    fread(source,1,memSize,f);
+    size_t result = fread(source,1,memSize,f);
+    if(result != memSize) fputs("Cannot read input file", stderr);
 
     fclose(f);
 
@@ -127,30 +119,8 @@ int run(char* file, unsigned int* freq, unsigned int memSize, unsigned int *sour
 
 
 
-    // get stop time, and display the timing results
-    //    printf( "Time to generate:  %3.1f ms\n", elapsedTime );
-
-    //    long histoCount = 0;
-    //    for (int i=0; i<256; i++) {
-    //        histoCount += histo[i];
-    //    }
-    //    printf( "Histogram Sum:  %ld\n", histoCount );
-    //
-    // verify that we have the same counts via CPU
-    //    for (int i=0; i<memSize; i++)
-    //        freq[buffer[i]]--;
-    //    for (int i=0; i<256; i++) {
-    //        if (freq[i] != 0)
-    //            printf( "Failure at %d!\n", i );
-    //    }
-
-    //    for(int i = 0; i < 256; i++)
-    //      cout << freq[i] << endl;
-    //    cout << "HERE" << endl;
-
     cudaFree( dev_histo );
     cudaFree( dev_buffer0 );
     cudaFree( dev_buffer1 );
-//    cudaFreeHost(buffer);
     return 0;
 }

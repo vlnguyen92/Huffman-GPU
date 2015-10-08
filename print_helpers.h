@@ -2,7 +2,7 @@
 #define _PRINT_HELPERS_H_
 
 #include "parameters.h"
-#include "stdio.h"
+#include <stdio.h>
 
 __inline void printdbg_data_bin(const char* filename, unsigned int* data, unsigned int num_ints) {
 	FILE* dump = fopen((const char*) filename, "wt"); 
@@ -186,6 +186,5 @@ __inline void print_packed_rle_array(unsigned int* rle, unsigned int rle_len) {
 	}
 	printf("\n");
 }
-
 
 #endif // _PRINT_HELPERS_H_

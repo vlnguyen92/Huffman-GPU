@@ -1,7 +1,7 @@
 #ifndef _LOADTESTDATA_H_
 #define _LOADTESTDATA_H_
 
-#include "testdatagen.h"
+//#include "testdatagen.h"
 #include "hist.cu"
 #include "huffTree.h"
 
@@ -22,7 +22,7 @@ inline void initParams(char *file_name, uint num_block_threads, uint &num_blocks
     }
 }
 
-inline void loadData(char *file_name, uint *sourceData, uint256 *codewords, uint *codewordlens, uint num_elements, uint mem_size, double &H){
+inline void loadData(char *file_name, uint *sourceData, uint *codewords, uint *codewordlens, uint num_elements, uint mem_size, double &H){
     if (file_name == NULL) {
         //random code and data generation...
         //codewords[0] = 0x00;	codewordlens[0] = 1;
@@ -65,7 +65,7 @@ inline void loadData(char *file_name, uint *sourceData, uint256 *codewords, uint
         //        for (unsigned int i=0; i<mem_size; i++)
         //          freqs[((unsigned char*)sourceData)[i]]++;
         unsigned int freqs[UniqueSymbols] = {0};
-        run(file_name,freqs,mem_size,sourceData);
+        runHisto(file_name,freqs,mem_size,sourceData);
         INode* root = BuildTree(freqs);
 
         HuffCodeMap codes;
@@ -79,7 +79,7 @@ inline void loadData(char *file_name, uint *sourceData, uint256 *codewords, uint
             unsigned int count = distance(it->second.begin(),it->second.end());
             for(int i = 0; i < count; i++)
               if(it->second[i]) 
-                codewords[(unsigned int)(it->first)]+=(uint256)pow(2.0f,(int)count - i - 1);
+                codewords[(unsigned int)(it->first)]+=(uint)pow(2.0f,(int)count - i - 1);
             codewordlens[(unsigned int)(it->first)]=count;
           }
 //        for(int i = 0; i < 256; i++)

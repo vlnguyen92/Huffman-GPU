@@ -40,7 +40,8 @@ __inline__ void generateRLETestDataLongRuns1(T *data,  unsigned int num_blocks, 
 // equals 0x01, 0x02, 0x4, 0x8, 0x8, 0x10, 0x20, 0x40
 // num_symbols  =256. Must be multiple of 8.
 inline void generateCodewords(unsigned int *codewords, unsigned int *codewordlens, unsigned int num_symbols) {
-  unsigned int idx, i, j, numbits, k;//val, k; /* Generate codeword lengths*/ 
+  unsigned int idx, i, j, numbits, k;//val, k;
+  /* Generate codeword lengths*/
   for (j=0; j< num_symbols/8; j++) {
     for(i=0; i<4;i++) { //generate first half of length 1,2 3, 4
       idx = j*8 + i;
@@ -64,5 +65,7 @@ inline void generateData(unsigned int	*data,  unsigned int num_elements, unsigne
 	   data[i] = (unsigned int)(((float)rand()/(RAND_MAX + 1)) * num_symbols);
   }
 }
+
+
 
 #endif

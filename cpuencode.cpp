@@ -2,11 +2,10 @@
 
 #include "print_helpers.h"
 #include "cpuencode.h"
-#include <iostream>
 
 using namespace std;
 
-#if 0
+#if 1
 
 // The max. codeword length for each byte symbol is 32-bits
 
@@ -56,16 +55,15 @@ void cpu_vlc_encode(unsigned int* indata, unsigned int num_elements,
 extern "C"
 void cpu_vlc_encode(unsigned int* indata, unsigned int num_elements, 
 					unsigned int* outdata, unsigned int *outsize, 
-					uint256 *codewords, unsigned int* codewordlens) {
+					unsigned int *codewords, unsigned int* codewordlens) {
   unsigned int *bitstreamPt = (unsigned int*) outdata;             /* Pointer to current byte   */
   //assume memset is done.
   *bitstreamPt = 0x00000000U;
   unsigned int startbit		= 0;
   unsigned int totalBytes	= 0;
-//  uint256 one = 1;
 
   for(unsigned int k=0; k<num_elements; k++) {
-	uint256 cw256 = 0, mask64=1;
+	unsigned long long cw64 = 0, mask64=0;
 	unsigned int val32	= indata[k];
 	unsigned int numbits = 0;
 	unsigned int mask32, temp32;
@@ -73,33 +71,24 @@ void cpu_vlc_encode(unsigned int* indata, unsigned int num_elements,
 
 	for(unsigned int i=0; i<4;i++) {
 		unsigned char symbol = (unsigned char)(val32>>(8*(3-i)));
-		cw256	= (cw256<<codewordlens[symbol]) | codewords[symbol];
-		numbits+=codewordlens[symbol]; //numbits = total # of bits to write
-//    printf("cw len %d\n", codewordlens[symbol]);
+		cw64	= (cw64<<codewordlens[symbol]) | codewords[symbol];
+		numbits+=codewordlens[symbol];
 		//if (numbits>32) printf("WARRNING! Element %d is combined into numbits = %d!!!!!!!\n", k, numbits);
 	}
 
 	while (numbits>0) {
-		int writebits =  min(32-startbit, numbits);//writebits = total # of bits to write
-//    printf("writebits %d, startbit %d, numbits %d \n",writebits, startbit, numbits);
+		int writebits =  min(32-startbit, numbits);
 		if (numbits==writebits)  {
-				temp32 = castToUint(cw256); //(cw256 & 0xFFFFFFFF); 
+				temp32 = (unsigned int) cw64; //(cw64 & 0xFFFFFFFF); 
 				mask32 = temp32<<(32-startbit-numbits);
-//        printf("Branch 1: ");
-//        print32Bits(mask32);
 		}
 		else {
-				mask32 = castToUint(cw256>>(numbits-writebits));//first 32 bits
-//        printf("Before: "); print32Bits(castToUint(cw256));
-				cw256 = cw256 & ((mask64<<(numbits-writebits))-1);//get the necessary mask to all 1's.
-//        printf("After: ");
-//        print32Bits(castToUint(cw256));
-//        printf("Branch 2: "); print32Bits(mask32);
+				mask32 = (unsigned int)(cw64>>(numbits-writebits));
+				cw64 = cw64 & ((1<<(numbits-writebits))-1);
 		}
 		*bitstreamPt = (*bitstreamPt) | mask32;
-//    print32Bits((*bitstreamPt) | mask32);
 		numbits = numbits - writebits;
-		startbit = (startbit+writebits)%32;//update startbit
+		startbit = (startbit+writebits)%32;
 		if (startbit == 0) { 
 			bitstreamPt++;  
 			*bitstreamPt = 0x00000000; 

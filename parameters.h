@@ -1,7 +1,6 @@
 #ifndef _PARAMS_H_
 #define _PARAMS_H_
 
-#include "uint256.h"
 typedef unsigned int uint;
 typedef unsigned char uint8;
 
